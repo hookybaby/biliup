@@ -88,6 +88,7 @@ export interface StudioEntity {
 	open_elec: number;
 	credits: Credit[];
 	uploader: string;
+	extra_fields?: string;
 }
 
 export interface LiveStreamerEntity {
@@ -100,11 +101,13 @@ export interface LiveStreamerEntity {
 	upload_id?: number;
 	status?: string | React.ReactNode;
 	format?: string;
+    time_range?: string;
 	preprocessor?: Record<'run', string>[];
 	segment_processor?: Record<'run', string>[];
 	downloaded_processor?: Record<'run', string>[];
 	postprocessor?: (Record<'run' | 'mv', string> | 'rm')[];
 	opt_args?: string[];
+	override?: Record<string, any>;
 }
 
 export interface BiliType {

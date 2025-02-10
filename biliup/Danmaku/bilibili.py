@@ -22,18 +22,29 @@ class Bilibili:
         'accept-language': 'zh-CN,zh;q=0.8,en-US;q=0.5,en;q=0.3',
         'user-agent': random_user_agent(),
         'origin': 'https://live.bilibili.com',
-        'referer': 'https://live.bilibili.com',
+        'referer': 'https://live.bilibili.com'
     }
 
     @staticmethod
-    async def get_ws_info(url, context):
+    async def get_ws_info(url, content):
+
+        uid = content['uid']
+        # 传入内容中，如果 uid 不为 0，则 cookie 必然存在，且必然为详细模式
+        if uid > 0:
+            Bilibili.headers['cookie'] = content['cookie']
+        else:
+            Bilibili.headers['cookie'] = ""
+
+        # 获取弹幕认证信息
         danmu_wss_url = 'wss://broadcastlv.chat.bilibili.com/sub'
+        room_id = content.get('room_id')
         async with aiohttp.ClientSession(headers=Bilibili.headers) as session:
-            async with session.get("https://api.live.bilibili.com/room/v1/Room/room_init?id=" + match1(url, r'/(\d+)'),
+            if not room_id:
+                async with session.get("https://api.live.bilibili.com/room/v1/Room/room_init?id=" + match1(url, r'/(\d+)'),
                                    timeout=5) as resp:
-                room_json = await resp.json()
-                room_id = room_json['data']['room_id']
-            async with session.get(f"https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id={room_id}",
+                    room_json = await resp.json()
+                    room_id = room_json['data']['room_id']
+            async with session.get(f"https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?type=0&id={room_id}",
                                    timeout=5) as resp:
                 danmu_info = await resp.json()
                 danmu_token = danmu_info['data']['token']
@@ -44,16 +55,18 @@ class Bilibili:
                 except:
                     pass
 
-            data = json.dumps({
-                'uid': 0,
+            w_data = {
+                'uid': uid,
                 'roomid': room_id,
                 'protover': 3,
                 'platform': 'web',
                 'type': 2,
                 'key': danmu_token,
-            }, separators=(',', ':')).encode('ascii')
-            reg_datas = [(pack('>i', len(data) + 16) + b'\x00\x10\x00\x01' + pack('>i', 7) + pack('>i', 1) + data)]
+            }
 
+            data = json.dumps(w_data).encode('utf-8')
+            # logger.info(f"danmaku auth info {data}")
+            reg_datas = [(pack('>i', len(data) + 16) + b'\x00\x10\x00\x01' + pack('>i', 7) + pack('>i', 1) + data)]
         return danmu_wss_url, reg_datas
 
     @staticmethod
@@ -89,7 +102,6 @@ class Bilibili:
             return dm_list
 
         dm_list = decode_packet(data)
-
         for dm in dm_list:
             try:
                 msg = {}
@@ -100,7 +112,9 @@ class Bilibili:
                         'DANMU_MSG': 'danmaku',
                         'WELCOME': 'enter',
                         'NOTICE_MSG': 'broadcast',
-                        'LIVE_INTERACTIVE_GAME': 'interactive_danmaku'  # 新增互动弹幕，经测试与弹幕内容一致
+                        'SUPER_CHAT_MESSAGE': 'super_chat',
+                        'LIVE_INTERACTIVE_GAME': 'interactive_danmaku',  # 新增互动弹幕，经测试与弹幕内容一致
+                        'GUARD_BUY': 'guard_buy'
                     }.get(j.get('cmd'), 'other')
                     # 2021-06-03 bilibili 字段更新, 形如 DANMU_MSG:4:0:2:2:2:0
                     if msg.get('msg_type', 'UNKNOWN').startswith('DANMU_MSG'):
@@ -109,8 +123,38 @@ class Bilibili:
                     if msg['msg_type'] == 'danmaku':
                         msg['name'] = (j.get('info', ['', '', ['', '']])[2][1] or
                                        j.get('data', {}).get('uname', ''))
+                        msg['uid'] = j.get('info', ['', '', ['', '']])[2][0]
                         msg['content'] = j.get('info', ['', ''])[1]
                         msg["color"] = f"{j.get('info', '16777215')[0][3]}"
+
+                        # 区分是表情包还是普通弹幕
+                        msg_extra = json.loads(j.get('info', [['','','','','','','','','','','','','','','',{}]])[0][15].get("extra", "{}"))
+                        if msg_extra.get("emoticon_unique", "") != "":
+                            msg['content'] = f"表情【{msg_extra['emoticon_unique']}】"
+
+                    elif msg['msg_type'] == 'super_chat':
+                        msg['name'] = j.get('data', {}).get('user_info', {}).get('uname', "")
+                        msg['uid'] = j.get('data', {}).get('uid', '')
+                        msg['content'] = j.get('data', {}).get('message', '')
+                        msg['price'] = int(j.get('data', {}).get('price', 0)) * 1000
+                        msg['num'] = 1
+                        msg['gift_name'] = "醒目留言"
+
+                    elif msg['msg_type'] == "guard_buy":
+                        msg['name'] = j.get('data', {}).get('username', '')
+                        msg['uid'] = j.get('data', {}).get('uid', '')
+                        msg['gift_name'] = j.get('data', {}).get('gift_name', '')
+                        msg['price'] = j.get('data', {}).get('price', '')
+                        msg['num'] = j.get('data', {}).get('num', '')
+                        msg['content'] = f"{msg['name']}上了{msg['num']}个月{msg['gift_name']}"
+
+                    elif msg['msg_type'] == 'gift':
+                        msg['name'] = j.get('data', {}).get('uname', '')
+                        msg['uid'] = j.get('data', {}).get('uid', '')
+                        msg['gift_name'] = j.get('data', {}).get('giftName', '')
+                        msg['price'] = j.get('data', {}).get('price', '')
+                        msg['num'] = j.get('data', {}).get('num', '')
+                        msg['content'] = f"{msg['name']}投喂了{msg['num']}个{msg['gift_name']}"
 
                     elif msg['msg_type'] == 'interactive_danmaku':
                         msg['name'] = j.get('data', {}).get('uname', '')

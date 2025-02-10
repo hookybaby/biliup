@@ -130,6 +130,7 @@ class UploadStreamers(BaseModel):
     up_selection_reply: Mapped[int] = mapped_column(nullable=True)  # 精选评论
     up_close_reply: Mapped[int] = mapped_column(nullable=True)  # 关闭评论
     up_close_danmu: Mapped[int] = mapped_column(nullable=True)  # 精选评论
+    extra_fields: Mapped[str] = mapped_column(nullable=True)  # 额外字段
     livestreamers: Mapped[List["LiveStreamers"]] = relationship(back_populates="uploadstreamers")
 
 
@@ -141,10 +142,12 @@ class LiveStreamers(BaseModel):
     url: Mapped[str] = mapped_column(nullable=False, unique=True)  # 直播间地址
     remark: Mapped[str] = mapped_column(nullable=False)  # 对应配置文件中 {streamer} 变量
     filename_prefix: Mapped[str] = mapped_column(nullable=True)  # filename_prefix 支持模板
+    time_range: Mapped[str] = mapped_column(nullable=True)  # 录制时间范围
     # 外键, 对应 UploadStreamers, 且启用级联删除
     upload_streamers_id = mapped_column(ForeignKey("uploadstreamers.id", ondelete="CASCADE"), nullable=True)
     uploadstreamers: Mapped[UploadStreamers] = relationship(back_populates="livestreamers")
     format: Mapped[str] = mapped_column(nullable=True)  # 视频格式
+    override = mapped_column(JSON(), nullable=True)  # 覆写配置
     preprocessor = mapped_column(JSON(), nullable=True)  # 开始下载直播时触发
     segment_processor = mapped_column(JSON(), nullable=True)  # 分段时触发
     downloaded_processor = mapped_column(JSON(), nullable=True)  # 准备上传直播时触发
